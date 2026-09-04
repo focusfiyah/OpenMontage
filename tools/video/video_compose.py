@@ -435,6 +435,166 @@ class VideoCompose(BaseTool):
             artifacts=[str(video_path)],
         )
 
+    # ------------------------------------------------------------------
+    # Music bed resolution
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _music_spec(edit_decisions: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the music spec declared in edit_decisions, or None.
+
+        Director skills record the bed at ``edit_decisions.audio.music``;
+        the artifact schema also allows a top-level ``music`` block. Accept
+        either so a valid artifact is never silently ignored.
+        """
+        audio = edit_decisions.get("audio") or {}
+        spec = audio.get("music") or edit_decisions.get("music")
+        if not isinstance(spec, dict) or not spec:
+            return None
+        return spec
+
+    def _probe_duration(self, path: Path) -> float | None:
+        try:
+            out = self.run_command([
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=nw=1:nk=1", str(path),
+            ])
+            text = out if isinstance(out, str) else getattr(out, "stdout", "")
+            return float(str(text).strip().splitlines()[0])
+        except Exception:
+            return None
+
+    def _build_music_track(
+        self,
+        spec: dict[str, Any],
+        asset_manifest: dict[str, Any] | None,
+        video_path: Path,
+        edit_decisions: dict[str, Any],
+    ) -> tuple[Path | None, str | None]:
+        """Render the approved music bed to a wav sized to the video.
+
+        Applies volume, fades and any ``metadata.silence_window`` from the
+        edit artifact. Returns ``(path, None)`` on success or
+        ``(None, error)`` when the declared bed cannot be produced — callers
+        MUST treat the error as fatal rather than rendering silent.
+        """
+        source = spec.get("path") or spec.get("source_path")
+        asset_id = spec.get("asset_id")
+        if not source and asset_id:
+            assets = (asset_manifest or {}).get("assets") or []
+            match = next((a for a in assets if a.get("id") == asset_id), None)
+            if match is None:
+                return None, (
+                    f"edit_decisions declares music asset_id={asset_id!r} but no asset "
+                    f"with that id exists in asset_manifest.assets. Refusing to render "
+                    f"a silent video for a brief that specifies music."
+                )
+            source = match.get("path")
+        if not source:
+            return None, (
+                "edit_decisions declares a music block with neither 'path' nor a "
+                "resolvable 'asset_id'. Refusing to render a silent video."
+            )
+
+        music = Path(source)
+        if not music.is_file():
+            return None, f"Music file declared in edit_decisions does not exist: {music}"
+
+        duration = self._probe_duration(video_path)
+        if not duration or duration <= 0:
+            return None, f"Could not probe duration of rendered video: {video_path}"
+
+        volume = float(spec.get("volume", 0.7))
+        fade_in = float(spec.get("fade_in_seconds", 0.0) or 0.0)
+        fade_out = float(spec.get("fade_out_seconds", 0.0) or 0.0)
+
+        chain = [f"atrim=0:{duration:.3f}", "asetpts=N/SR/TB", f"volume={volume}"]
+        if fade_in > 0:
+            chain.append(f"afade=t=in:st=0:d={fade_in}")
+        if fade_out > 0:
+            chain.append(f"afade=t=out:st={max(duration - fade_out, 0):.3f}:d={fade_out}")
+
+        window = ((edit_decisions.get("metadata") or {}).get("silence_window")) or {}
+        start, end = window.get("start_seconds"), window.get("end_seconds")
+        if start is not None and end is not None and float(end) > float(start):
+            # Gate the bed to zero across the approved silence window.
+            chain.append(
+                f"volume=enable='between(t,{float(start):.3f},{float(end):.3f})':volume=0"
+            )
+
+        out_path = video_path.with_name(f".{video_path.stem}.musicbed-{time.time_ns()}.wav")
+        try:
+            self.run_command([
+                "ffmpeg", "-y",
+                "-stream_loop", "-1",          # loop a short bed to cover the body
+                "-i", str(music),
+                "-filter:a", ",".join(chain),
+                "-t", f"{duration:.3f}",
+                "-ac", "2", "-ar", "48000",
+                str(out_path),
+            ])
+        except Exception as exc:
+            return None, f"Could not build music bed from {music}: {exc}"
+        if not out_path.is_file():
+            return None, f"Music bed build produced no output: {out_path}"
+        return out_path, None
+
+    def _apply_declared_music(
+        self,
+        inputs: dict[str, Any],
+        edit_decisions: dict[str, Any],
+        output_path: Path,
+        render_result: "ToolResult",
+    ) -> str | None:
+        """Mux the approved audio into a freshly rendered file, in place.
+
+        Called by every render path so a music bed declared in
+        ``edit_decisions`` behaves identically on Remotion, FFmpeg and the
+        Remotion-unavailable fallback. Returns an error string when a
+        declared bed cannot be honored — never render silent instead.
+        """
+        track, err, is_temp = self._resolve_audio_for_render(
+            inputs, edit_decisions, output_path
+        )
+        if err:
+            return err
+        if not track:
+            return None
+        try:
+            mux_result = self._mux_external_audio(output_path, track)
+        finally:
+            if is_temp and Path(track).exists():
+                Path(track).unlink()
+        if not mux_result.success:
+            return mux_result.error
+        if render_result.data is None:
+            render_result.data = {}
+        render_result.data["has_mixed_audio"] = True
+        return None
+
+    def _resolve_audio_for_render(
+        self,
+        inputs: dict[str, Any],
+        edit_decisions: dict[str, Any],
+        video_path: Path,
+    ) -> tuple[Path | None, str | None, bool]:
+        """Pick the audio to mux: explicit audio_path wins, else the music bed.
+
+        Returns ``(path, error, is_temp)``. A declared-but-unusable bed is an
+        error, never a silent render.
+        """
+        explicit = inputs.get("audio_path")
+        if explicit:
+            return Path(explicit), None, False
+        spec = self._music_spec(edit_decisions)
+        if not spec:
+            return None, None, False
+        built, err = self._build_music_track(
+            spec, inputs.get("asset_manifest"), video_path, edit_decisions
+        )
+        if err:
+            return None, err, False
+        return built, None, True
+
     def _compose(self, inputs: dict[str, Any]) -> ToolResult:
         """FFmpeg composition: concat video cuts, add audio, burn subtitles.
 
@@ -1689,11 +1849,10 @@ class VideoCompose(BaseTool):
                         f"Per governance: renderer downgrade requires user approval."
                     ),
                 )
-            if inputs.get("audio_path"):
-                mux_result = self._mux_external_audio(output_path, inputs["audio_path"])
-                if not mux_result.success:
-                    return mux_result
-                render_result.data["has_mixed_audio"] = True
+            # Mux the approved audio. An explicit audio_path still wins, but a
+            # music bed declared in edit_decisions is now honored instead of
+            # being silently dropped — rendering a music-mandatory brief silent
+            # is the loudest failure mode this pipeline has.
         else:
             # --- FFmpeg fallback: only when Remotion is unavailable ---
             options = inputs.get("options", {})
@@ -1716,6 +1875,18 @@ class VideoCompose(BaseTool):
                 compose_inputs["profile"] = profile
 
             render_result = self._compose(compose_inputs)
+
+        # --- Post-render: mux the approved audio ---
+        # Both branches above render silent video; the bed declared in
+        # edit_decisions.audio.music is applied here so Remotion and the
+        # FFmpeg fallback behave identically. Runs before the self-review so
+        # the review sees the real audio track.
+        if render_result.success and output_path.exists():
+            music_err = self._apply_declared_music(
+                inputs, edit_decisions, output_path, render_result
+            )
+            if music_err:
+                return ToolResult(success=False, error=music_err)
 
         # --- Post-render: mandatory final self-review ---
         if render_result.success and output_path.exists():
@@ -1914,6 +2085,15 @@ class VideoCompose(BaseTool):
             compose_inputs["profile"] = profile
 
         render_result = self._compose(compose_inputs)
+
+        # _compose() only muxes from an explicit audio_path, so a bed declared
+        # in edit_decisions has to be applied here or it is silently dropped.
+        if render_result.success and output_path.exists() and not inputs.get("audio_path"):
+            music_err = self._apply_declared_music(
+                inputs, edit_decisions, output_path, render_result
+            )
+            if music_err:
+                return ToolResult(success=False, error=music_err)
 
         if render_result.success and output_path.exists():
             final_review = self._run_final_review(
