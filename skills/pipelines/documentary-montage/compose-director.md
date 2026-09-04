@@ -150,6 +150,39 @@ and L-cut sfx layers. Your job is to execute them faithfully:
 
 Do NOT add ambient noise "to fill the gap".
 
+#### Verify the mix by measuring it, not by trusting the call
+
+**A successful render call is not evidence of audio.** The renderer can
+return `success=True`, the output can carry a valid AAC stream, the
+artifact can validate against its schema, and the track can still be
+completely silent. Nothing in the pipeline's gates catches this — the
+`music_mixed = true` success criterion is an assumption unless you
+measured it.
+
+Measure before writing the render report:
+
+```bash
+# Whole file. Digital silence reads as -91 dB.
+ffmpeg -hide_banner -i final.mp4 -map 0:a -af volumedetect -f null -
+
+# And windows, because a 2s dropout averages away across 75s.
+ffmpeg -hide_banner -ss 5 -t 3 -i final.mp4 -map 0:a -af volumedetect -f null -
+```
+
+Check three things and record the numbers in `verification_notes`:
+
+1. **The bed is audible** where it should be playing (a mean around
+   -20 to -30 dB is normal; -91 dB is a flatline).
+2. **The silence window is a duck, not a flatline.** Measure inside it.
+   If it reads -91 dB, re-mix it as a deep duck — see the edit-director's
+   note on why zero is wrong when the bed is music-only.
+3. **The tail fade actually ran** for `fade_out_seconds`, not for
+   whatever default the audio tool applied at a segment boundary.
+
+If the mix has to be rebuilt after the video render, replace the audio
+with `-c:v copy` so the graded picture and end-tag overlay are not
+re-encoded, and confirm the frame count is unchanged afterwards.
+
 ### 4b. Render The End-Tag Via Remotion
 
 The end-tag is rendered **separately** from the FFmpeg body via

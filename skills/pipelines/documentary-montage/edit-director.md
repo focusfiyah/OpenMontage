@@ -129,10 +129,29 @@ on musical events. Three sync moves:
   provided track) or can hear them, place hero cuts on downbeats.
   If not, evenly-spaced cuts on 4s intervals for a 60bpm bed are a
   safe default.
-- **One held silence.** Drop the music out for ~2s at the piece's
-  emotional center. Silence is a tool. Use it once. Use it hard.
+- **One held silence.** Rest the music for ~2s at the piece's emotional
+  center. Silence is a tool. Use it once. Use it hard.
+
+  **Duck, do not cut to zero — unless something else is in the bed.**
+  This move assumes a documentary mix with ambient under the music. If
+  the piece has no narration and no ambient (a music-only bed, which is
+  the common case here: `video_compose` renders silent and stock clips
+  frequently carry no audio at all), dropping the music to zero means
+  the whole audio track flatlines. Digital silence in the middle of a
+  film reads as a technical fault, not a rest — a viewer's first thought
+  is that the file broke. Duck to roughly -25 to -30 dB relative instead,
+  with ~1.0-1.5s ramps either side, and record it as
+  `metadata.silence_window` with a `mode` of `"deep_duck"`.
+
+  Cut fully to zero only when there IS a floor to fall back to — mixed-in
+  ambient, room tone, or an L-cut carrying the outgoing shot's sound.
+  Check the asset manifest before deciding: if the picked clips have no
+  audio streams, you do not have a floor.
 - **Tail fade.** Music fades under the last 3-5s so the final image
-  can breathe without a musical resolution fighting it.
+  can breathe without a musical resolution fighting it. Whatever you put
+  in `fade_out_seconds` is what the compose stage should execute — verify
+  it in the render rather than assuming, since some audio tools apply
+  their own boundary fade and quietly override this value.
 
 Record the music config in `edit_decisions.audio.music` with:
 
