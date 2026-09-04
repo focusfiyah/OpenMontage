@@ -18,8 +18,8 @@
           "hook": { "type": "string", "description": "Opening line that creates curiosity. Under 20 words." },
           "narrative_structure": {
             "type": "string",
-            "enum": ["analogy", "problem_solution", "journey", "debate", "myth_busting", "timeline", "comparison", "tutorial", "story", "data_narrative"],
-            "description": "The structural approach to telling this story"
+            "enum": ["analogy", "problem_solution", "journey", "debate", "myth_busting", "timeline", "comparison", "tutorial", "story", "data_narrative", "list", "single_image_expansion"],
+            "description": "The structural approach to telling this story. `list` (accumulation with no arc) and `single_image_expansion` (one idea held from many angles) are montage shapes — documentary-montage's list/catalogue and single-image-expansion. Its before/after maps to `comparison` and its three-act to `story`."
           },
           "visual_approach": { "type": "string", "description": "Primary visual strategy — specific enough to guide scene planning" },
           "suggested_playbook": { "type": "string", "description": "Style playbook name from styles/" },

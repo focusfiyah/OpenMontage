@@ -77,6 +77,19 @@ Shape options:
 - **list/catalogue** — "everyone who..." structure, no arc, just
   accumulation (good for reverent or elegiac)
 
+The `shape` you pick goes in the brief. If you also emit a
+`proposal_packet` (compose passes one to `video_compose` so the
+runtime-swap check runs actively rather than reporting `skipped`), its
+`narrative_structure` field takes a fixed enum. Map the shape like this
+— do not invent a value, the schema rejects it:
+
+| Shape | `narrative_structure` |
+|-------|-----------------------|
+| list/catalogue | `list` |
+| single-image expansion | `single_image_expansion` |
+| before/after | `comparison` |
+| three-act | `story` |
+
 ### 4. Note Music Intent (MANDATORY)
 
 Documentary montage is inseparable from its music bed. **Music is MANDATORY
