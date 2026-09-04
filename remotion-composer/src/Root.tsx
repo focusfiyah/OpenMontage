@@ -132,6 +132,39 @@ const calculateMetadata: CalculateMetadataFunction<ExplainerProps> = async ({
   return { durationInFrames: Math.ceil((lastEnd + 1) * 30) };
 };
 
+export const END_TAG_FPS = 30;
+
+/**
+ * Derive the end-tag's duration from its timing props.
+ *
+ * The EndTag component builds its opacity envelope as
+ * `fadeIn -> hold -> fadeOut`, so the composition should last exactly
+ * that long. Without this, `durationInFrames` was a hardcoded constant
+ * and `--props '{"holdSeconds": ...}'` changed the animation while the
+ * composition kept its original length — silently padding the render
+ * with transparent (overlay) or blank (concat) frames. In concat mode
+ * that padding lands directly in the delivered runtime.
+ *
+ * `durationInFrames` on the Composition stays as a fallback for the
+ * Studio; this function is authoritative at render time.
+ */
+export const calculateEndTagMetadata: CalculateMetadataFunction<
+  EndTagProps
+> = async ({ props }) => {
+  const fadeIn = props.fadeInSeconds ?? 0.6;
+  const hold = props.holdSeconds ?? 4.3;
+  const fadeOut = props.fadeOutSeconds ?? 0.6;
+
+  // Mirror the component's per-segment rounding so the envelope and the
+  // composition agree frame-for-frame.
+  const frames =
+    Math.round(fadeIn * END_TAG_FPS) +
+    Math.round(hold * END_TAG_FPS) +
+    Math.round(fadeOut * END_TAG_FPS);
+
+  return { durationInFrames: Math.max(1, frames) };
+};
+
 export const Root: React.FC = () => {
   return (
     <>
@@ -299,11 +332,13 @@ export const Root: React.FC = () => {
       <Composition
         id="EndTag"
         component={EndTag}
-        // 5.5s at 30fps = 165 frames. Render CLI can override via --props.
-        durationInFrames={165}
-        fps={30}
+        // Duration is derived from the timing props — see
+        // calculateEndTagMetadata. 0.6 + 4.3 + 0.6 = 5.5s = 165 frames.
+        durationInFrames={END_TAG_FPS * 6}
+        fps={END_TAG_FPS}
         width={1920}
         height={1080}
+        calculateMetadata={calculateEndTagMetadata}
         defaultProps={{
           text: "THE CITY KEEPS ITS OWN VIGIL.",
           palette: "cool_offwhite_on_black",
@@ -315,12 +350,13 @@ export const Root: React.FC = () => {
       <Composition
         id="EndTagOverlay"
         component={EndTag}
-        // 8.19s at 30fps = 246 frames. Render CLI can override via --props.
-        // Intended to be composited on top of body footage, not concat'd.
-        durationInFrames={246}
-        fps={30}
+        // Same derivation; intended to be composited on top of body
+        // footage, not concat'd. 1.0 + 5.69 + 1.5 = 8.19s = 246 frames.
+        durationInFrames={END_TAG_FPS * 9}
+        fps={END_TAG_FPS}
         width={1920}
         height={1080}
+        calculateMetadata={calculateEndTagMetadata}
         defaultProps={{
           text: "EARN THE LIGHT.",
           palette: "cool_offwhite_on_black",

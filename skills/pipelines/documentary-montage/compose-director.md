@@ -180,7 +180,12 @@ appears on top of live footage rather than cutting to a black card.
 
 1. Compose the body via FFmpeg (cuts + LUT + music + silence window).
    Save as `projects/<name>/renders/body.mp4`. Note the body fps.
-2. Compute `durationInFrames = round(duration_seconds × body_fps)`.
+2. Split `end_tag_plan.duration_seconds` into `fadeInSeconds`,
+   `holdSeconds` and `fadeOutSeconds`. Those three are what set the
+   tag's length — the composition derives `durationInFrames` from them,
+   so they must sum to the duration you want. Do NOT pass
+   `durationInFrames` in `--props`; it is not a component prop and has
+   no effect.
 3. Render the end-tag with alpha via Remotion CLI:
    ```bash
    npx remotion render src/index.tsx EndTagOverlay \
@@ -228,9 +233,13 @@ this only when `end_tag_plan.mode == "concat"`.
    ```bash
    npx remotion render src/index.tsx EndTag \
      projects/<name>/renders/end_tag.mp4 \
-     --props='{"text":"...","palette":"...","durationInFrames":132}'
+     --props='{"text":"...","palette":"...",
+               "fadeInSeconds":0.6,"holdSeconds":4.3,"fadeOutSeconds":0.6}'
    ```
-   (5.5s at 24fps = 132 frames). Canvas must match body canvas.
+   The three timings sum to the card's length (here 5.5s = 165 frames at
+   30fps). Getting them wrong matters more in concat than in overlay:
+   concat appends the card, so its length lands directly in the
+   delivered runtime. Canvas must match body canvas.
 3. Concat body + end_tag:
    ```bash
    ffmpeg -f concat -safe 0 -i list.txt -c copy final.mp4
