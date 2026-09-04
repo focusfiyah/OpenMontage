@@ -231,6 +231,21 @@
         "verdict": { "type": "string", "enum": ["strong", "acceptable", "revise", "fail"] }
       }
     },
+    "end_tag": {
+      "type": "object",
+      "description": "Philosophical closing tag for documentary-montage. Written by the edit director and read by the compose director. Mandatory on that pipeline unless the brief records an explicit opt-out.",
+      "properties": {
+        "offset_seconds": { "type": "number", "minimum": 0, "description": "Overlay mode: when the tag starts, in body time. Usually body_duration - duration_seconds so the tag's fade-out aligns with the body's closing fade." },
+        "mode": { "type": "string", "enum": ["overlay", "concat"], "description": "overlay: alpha-composited onto the final body scenes. concat: opaque card appended after the body." },
+        "text": { "type": "string", "description": "3-9 words. A thesis, not a summary." },
+        "palette": { "type": "string", "enum": ["cool_offwhite_on_black", "warm_ivory_on_black"] },
+        "duration_seconds": { "type": "number", "minimum": 0, "description": "Total tag screen time: fade-in + hold + fade-out" },
+        "component": { "type": "string", "description": "Remotion component id, e.g. EndTag" },
+        "render_engine": { "type": "string", "enum": ["remotion"] },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "metadata": { "type": "object" }
   },
   "additionalProperties": false

@@ -57,6 +57,19 @@
       "type": "string",
       "description": "Path or inline reference to the final_review artifact produced by post-render self-review. Provides durable audit linkage between the render output and its quality inspection."
     },
+    "end_tag_rendered": {
+      "type": "boolean",
+      "description": "Whether the end-tag was rendered. documentary-montage's compose success_criteria require this field (or an explicit opt-out recorded in the brief)."
+    },
+    "end_tag_mode": {
+      "type": "string",
+      "enum": ["overlay", "concat"],
+      "description": "How the end-tag was composited onto the body"
+    },
+    "music_mixed": {
+      "type": "boolean",
+      "description": "Whether a music bed was mixed into the output. Required by documentary-montage's compose success_criteria; music is mandatory there unless the brief records an explicit opt-out."
+    },
     "metadata": { "type": "object" }
   },
   "additionalProperties": false
