@@ -26,6 +26,10 @@
           "model": { "type": "string", "description": "Model used for generation" },
           "cost_usd": { "type": "number", "minimum": 0 },
           "duration_seconds": { "type": "number", "minimum": 0 },
+          "has_audio": {
+            "type": "boolean",
+            "description": "Whether this video asset carries an audio stream. Stock clips frequently do not. The edit director needs this before planning L-cuts or a full music dropout, because both depend on there being something under the music."
+          },
           "resolution": { "type": "string" },
           "format": { "type": "string" },
           "quality_score": { "type": "number", "minimum": 0, "maximum": 1 },

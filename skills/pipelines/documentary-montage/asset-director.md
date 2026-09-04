@@ -181,6 +181,21 @@ If specific slots have no good match after the initial search:
 Same format as the standard path (see step 9 below). The `source_tool`
 field should be `"direct_clip_search"` instead of `"corpus_builder"`.
 
+**Probe each picked clip for an audio stream and record `has_audio`.**
+Stock footage frequently carries none — in one production run 5 of 13
+Pexels picks had no audio at all. The edit director needs this before
+it can plan L-cuts or a full music dropout, and discovering it at
+compose time is too late to change the plan:
+
+```bash
+ffprobe -v error -select_streams a -show_entries stream=codec_name \
+  -of csv=p=0 <clip>     # empty output means no audio stream
+```
+
+If none of the picks have audio, say so in the checkpoint summary. It
+constrains the edit — no ambient bed, no L-cut welds, and a music
+dropout would leave the whole track silent.
+
 ---
 
 ## Process — Standard Path (Corpus + CLIP Retrieval)

@@ -225,6 +225,15 @@ by layering the outgoing clip's audio as an SFX entry in
 Documentary montages with L-cuts feel 50% more coherent than ones
 without. Use them on the 3-4 hardest transitions in the piece.
 
+**Check `has_audio` on the asset before planning one.** The asset
+director records it per clip; stock footage often has no audio stream
+at all. An L-cut planned across a silent clip is a decision the compose
+stage cannot execute, and it will be dropped with a warning rather than
+performed. If most picks are silent, skip L-cuts entirely rather than
+writing four of them into `metadata.l_cuts` for nobody to honour — and
+note in the same breath that a full music dropout is then off the table
+too, since there is no bed underneath it (see step 4).
+
 ### 8b. Place The End-Tag Overlay
 
 If `brief.metadata.end_tag_plan.mode == "overlay"` (the default), the
