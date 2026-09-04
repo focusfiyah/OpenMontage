@@ -190,9 +190,18 @@ You have two tools to smooth this:
 1. **Crop to a uniform aspect ratio.** Pick one: 16:9 cinematic
    (`2.35:1` letterbox on top/bottom) for hero pieces, 9:16 for
    social. Enforce in the `transform.crop` field of each cut.
-2. **Flag the piece for a uniform color grade at compose time.** Put
-   a `grade_profile` hint in `edit_decisions.metadata`. The compose
-   director will apply a LUT across the whole timeline.
+2. **Flag the piece for a uniform color grade at compose time.** Put a
+   `grade_profile` (and optionally `grade_intensity`, 0.0–1.0) in
+   `edit_decisions.metadata`. The compose director applies it once
+   across the whole timeline.
+
+   `grade_profile` must be one of the profiles `color_grade` actually
+   implements — anything else is rejected by the tool:
+   `vintage_film`, `cinematic_warm`, `cinematic_cool`, `moody_dark`,
+   `high_contrast`, `bright_clean`, `neutral`. Elegiac and dreamlike
+   registers usually want `vintage_film` or `cinematic_warm`; cold, wet
+   or night-led pieces want `cinematic_cool`; urgent and wry want
+   `moody_dark`. See the compose-director's table for the full mapping.
 
 Don't try to color-grade individual clips here. That's the compose
 stage. Your job is to flag the need.
@@ -302,7 +311,8 @@ Canonical shape for this pipeline:
     "shape": "list",
     "total_duration_seconds": 90.0,
     "hold_table_used": { "base": 4.0, "min": 2.5, "max": 7.0 },
-    "grade_profile": "warm_film_100",
+    "grade_profile": "vintage_film",
+    "grade_intensity": 0.8,
     "reorder_notes": [],
     "diversity_swaps": [
       { "at": "cut_07-cut_08", "reason": "two wide rooftops-in-rain adjacent, swapped 08 for #2 pick" }

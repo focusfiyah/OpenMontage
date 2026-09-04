@@ -108,20 +108,32 @@ writing the call. Do not invent parameters.
 `edit_decisions_with_renderer_family` means the normal edit artifact
 with `renderer_family = "documentary-montage"` preserved intact.
 
-### 3. Apply Grade Via LUT, Not Per Clip
+### 3. Apply Grade Once Across The Timeline, Not Per Clip
 
-Read `edit_decisions.metadata.grade_profile`. Map it to a LUT file:
+Read `edit_decisions.metadata.grade_profile`. It names a profile the
+`color_grade` tool actually implements — these are the only legal
+values, and the edit director must write one of them:
 
-| Profile | LUT | Suits |
-|---------|-----|-------|
-| `warm_film_100` | vintage film warmth, slight lift | elegiac, dreamlike |
-| `cool_archive_60` | cool highlights, crushed blacks | urgent, wry |
-| `neutral_doc_20` | barely-there neutral balance | reverent |
-| `bleach_bypass_80` | desaturated, high contrast | wry, documentary-harsh |
+| Profile | Look | Suits |
+|---------|------|-------|
+| `vintage_film` | faded film, grain texture, warm tint | elegiac, dreamlike |
+| `cinematic_warm` | warm, lifted shadows, orange highlights | elegiac, reverent |
+| `cinematic_cool` | cool teal-and-orange grade | rain, night, cold registers |
+| `moody_dark` | crushed blacks, desaturated midtones | urgent, wry, documentary-harsh |
+| `high_contrast` | punchy, dynamic | wry |
+| `bright_clean` | bright, vivid, lifted shadows | upbeat (rare here) |
+| `neutral` | minimal correction, normalized levels | reverent, or when unsure |
 
-If the profile isn't in the styles library, use `neutral_doc_20` and
-note it in `warnings`. Do not try to auto-grade — the LUT is the
-whole point of the register-smoothing pass.
+Strength is a separate dial: pass `intensity` (0.0–1.0, default 1.0) to
+`color_grade`. A documentary montage usually wants 0.6–0.9 — enough to
+unify mixed-era footage, not enough to announce itself. Reach for an
+external `.cube` file via `lut_path` only when the project ships one;
+there are none in the repo by default.
+
+If `grade_profile` names something outside the table above, fall back to
+`neutral` and note the substitution in `warnings`. Do not invent a
+profile name — `color_grade` validates against its own enum and will
+reject it.
 
 Apply the LUT at the composition level, not per clip. One LUT, one
 timeline, one consistent look. This is what makes a 1962 Prelinger
@@ -320,7 +332,8 @@ Record verifications in `render_report.verification_notes`.
     "pipeline": "documentary-montage",
     "canvas": { "width": 1920, "height": 1080 },
     "letterbox": "2.35:1",
-    "lut": "warm_film_100",
+    "grade_profile": "vintage_film",
+    "grade_intensity": 0.8,
     "music_present": true
   }
 }
