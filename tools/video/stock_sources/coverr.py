@@ -36,14 +36,18 @@ class CoverrSource:
     provider = "coverr"
     priority = 16
     install_instructions = (
-        "Coverr works without an API key (free tier, 50 req/hr). "
-        "Set COVERR_API_KEY in .env for higher rate limits (Pro tier)."
+        "Set COVERR_API_KEY in .env. api.coverr.co returns 401 Unauthorized "
+        "without one — there is no working anonymous tier. "
+        "Get a key at https://coverr.co/developers"
     )
     supports = {"video": True, "image": False}
 
     def is_available(self) -> bool:
-        # Coverr works without an API key (free tier)
-        return True
+        # api.coverr.co/videos answers 401 Unauthorized with no Authorization
+        # header, so the previously advertised keyless "free tier" does not
+        # exist. Reporting available without a key made this source look usable
+        # at preflight and then return nothing on every query.
+        return bool(os.environ.get("COVERR_API_KEY"))
 
     def search(self, query: str, filters: SearchFilters) -> list[Candidate]:
         import requests

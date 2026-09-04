@@ -47,13 +47,20 @@ class Pond5PublicDomainSource:
     provider = "pond5"
     priority = 38
     install_instructions = (
-        "Pond5 Public Domain works without an API key for basic search. "
-        "Set POND5_API_KEY in .env for higher rate limits and full API access."
+        "Currently unavailable: pond5.com serves a JavaScript bot-protection "
+        "challenge and answers 403 Forbidden to both the API and the web "
+        "fallback, regardless of User-Agent. Working around that challenge is "
+        "deliberately out of scope. Re-enable only via an access route Pond5 "
+        "sanctions."
     )
     supports = {"video": True, "image": True}
 
     def is_available(self) -> bool:
-        return True
+        # Both the API endpoint and the /free web fallback sit behind a
+        # JavaScript bot challenge that returns 403 to any scripted client.
+        # Bypassing it is out of scope, so the honest answer is unavailable —
+        # previously this reported available and silently yielded nothing.
+        return False
 
     def search(self, query: str, filters: SearchFilters) -> list[Candidate]:
         import requests

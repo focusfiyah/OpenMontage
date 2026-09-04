@@ -45,14 +45,21 @@ class NARASource:
     provider = "nara"
     priority = 35
     install_instructions = (
-        "NARA works without an API key. "
-        "Set NARA_API_KEY in .env for higher rate limits."
+        "Currently unavailable: catalog.archives.gov/api/v2/search answers "
+        "200 with content-type text/html (the catalog's single-page app "
+        "shell), so every response fails JSON decoding. The adapter needs "
+        "reworking against NARA's current Catalog API before it can be "
+        "re-enabled; setting NARA_API_KEY does not help on its own because "
+        "the adapter never sends it."
     )
     supports = {"video": True, "image": True}
 
     def is_available(self) -> bool:
-        # NARA is always available (no key required)
-        return True
+        # The v2 search endpoint now serves the catalog's SPA HTML rather than
+        # JSON, so search() raises JSONDecodeError on every query. Reporting
+        # available made preflight promise a source that can never return a
+        # single clip. Re-enable once the adapter targets a working endpoint.
+        return False
 
     def search(self, query: str, filters: SearchFilters) -> list[Candidate]:
         import requests
