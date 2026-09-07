@@ -289,6 +289,40 @@ After the render succeeds, actually probe the output file and check:
 
 Record verifications in `render_report.verification_notes`.
 
+### 6b. Emit A Phone-Sized Companion
+
+The master is the deliverable, but a documentary master is routinely too
+large to reach the person who commissioned it: chat and mobile transfer
+refuse files over ~30 MiB, and a 75s 1080p render at documentary bitrate
+lands near 77 MiB. A film the user cannot watch on their phone is not
+finished work.
+
+After the master verifies, emit a companion beside it:
+
+```python
+video_compose.execute({
+    "operation": "encode",
+    "input_path":  "projects/<name>/renders/final.mp4",
+    "output_path": "projects/<name>/renders/final_mobile.mp4",
+    "max_size_mb": 30,          # two-pass bitrate targeting, not CRF
+    "preset": "slow",
+})
+```
+
+`max_size_mb` guarantees the fit — CRF cannot, and guessing a CRF then
+re-encoding when it overshoots wastes minutes per attempt. The result
+reports `actual_size_mb` and `within_target`; check both.
+
+Keep the same resolution and duration. This is a bitrate reduction, not
+a downscale — long holds and slow motion compress well, so the visible
+loss on a montage is minimal. **Do not** replace the master with it, and
+do not re-grade or re-cut for it.
+
+Record it as a second entry in `render_report.outputs` with
+`platform_target: "mobile"`, so the manifest shows both the master and
+what was actually delivered. Tell the user which is which — they need to
+know the master is the one to upload or archive.
+
 ### 7. Emit The Render Report
 
 ```json

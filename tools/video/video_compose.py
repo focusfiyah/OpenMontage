@@ -194,6 +194,17 @@ class VideoCompose(BaseTool):
             "codec": {"type": "string", "default": "libx264"},
             "crf": {"type": "integer", "default": 23},
             "preset": {"type": "string", "default": "medium"},
+            "max_size_mb": {
+                "type": "number",
+                "minimum": 1,
+                "description": "encode only. Hard file-size cap in MiB. Switches to two-pass bitrate targeting, because CRF cannot guarantee a size. Use for delivery paths with a limit — chat/mobile transfer refuses files over ~30 MiB.",
+            },
+            "audio_bitrate_kbps": {
+                "type": "integer",
+                "minimum": 32,
+                "default": 128,
+                "description": "encode only, with max_size_mb. Audio bitrate reserved from the size budget.",
+            },
             "remotion_timeout_ms": {
                 "type": "integer",
                 "description": (
@@ -2841,6 +2852,85 @@ class VideoCompose(BaseTool):
                 cmd.extend(["-r", str(profile.fps)])
             except (ImportError, ValueError):
                 pass  # proceed without profile
+
+        # --- Size-targeted mode -------------------------------------------
+        # CRF cannot guarantee a file size, and some delivery paths have a
+        # hard cap (chat/mobile transfer refuses anything over ~30 MiB). When
+        # max_size_mb is set, switch to two-pass bitrate targeting so the
+        # result actually fits instead of being close and rejected.
+        max_size_mb = inputs.get("max_size_mb")
+        if max_size_mb:
+            try:
+                probe = self.run_command([
+                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=nw=1:nk=1", str(input_path),
+                ])
+                duration = float(str(getattr(probe, "stdout", "")).strip().splitlines()[0])
+            except Exception:
+                duration = 0.0
+            if not duration or duration <= 0:
+                return ToolResult(
+                    success=False,
+                    error=f"max_size_mb needs a probeable duration: {input_path}",
+                )
+            audio_kbps = int(inputs.get("audio_bitrate_kbps", 128))
+            # 3% headroom for container overhead and muxing slack.
+            budget_kbits = float(max_size_mb) * 8192 * 0.97
+            video_kbps = int(budget_kbits / duration) - audio_kbps
+            if video_kbps < 100:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"max_size_mb={max_size_mb} is too small for a "
+                        f"{duration:.1f}s clip: leaves {video_kbps} kbps for video. "
+                        f"Raise the cap or shorten the clip."
+                    ),
+                )
+            passlog = output_path.with_name(f".{output_path.stem}-2pass")
+            common = ["-c:v", codec, "-b:v", f"{video_kbps}k", "-preset", preset]
+            size_args: list[str] = []
+            if profile_name:
+                try:
+                    from lib.media_profiles import get_profile
+                    p = get_profile(profile_name)
+                    size_args = ["-s", f"{p.width}x{p.height}", "-r", str(p.fps)]
+                except (ImportError, ValueError):
+                    pass
+            try:
+                self.run_command([
+                    "ffmpeg", "-y", "-i", str(input_path), *common, *size_args,
+                    "-pass", "1", "-passlogfile", str(passlog), "-an", "-f", "null", "-",
+                ])
+                self.run_command([
+                    "ffmpeg", "-y", "-i", str(input_path), *common, *size_args,
+                    "-pass", "2", "-passlogfile", str(passlog),
+                    "-c:a", "aac", "-b:a", f"{audio_kbps}k",
+                    "-movflags", "+faststart", str(output_path),
+                ])
+            finally:
+                for leftover in output_path.parent.glob(f"{passlog.name}*"):
+                    leftover.unlink(missing_ok=True)
+            if not output_path.is_file():
+                return ToolResult(
+                    success=False, error=f"Encode produced no output: {output_path}"
+                )
+            actual_mb = output_path.stat().st_size / 1048576
+            return ToolResult(
+                success=True,
+                data={
+                    "operation": "encode",
+                    "codec": codec,
+                    "profile": profile_name,
+                    "mode": "two_pass_size_target",
+                    "max_size_mb": float(max_size_mb),
+                    "video_bitrate_kbps": video_kbps,
+                    "audio_bitrate_kbps": audio_kbps,
+                    "actual_size_mb": round(actual_mb, 2),
+                    "within_target": actual_mb <= float(max_size_mb),
+                    "output": str(output_path),
+                },
+                artifacts=[str(output_path)],
+            )
 
         cmd.append(str(output_path))
         self.run_command(cmd)
