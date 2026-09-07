@@ -483,9 +483,27 @@ class VideoCompose(BaseTool):
         except ValueError:
             target_w, target_h = 1920, 1080
 
-        cuts = edit_decisions.get("cuts", [])
-        if not cuts:
+        all_cuts = edit_decisions.get("cuts", [])
+        if not all_cuts:
             return ToolResult(success=False, error="No cuts in edit_decisions")
+
+        # `cuts[].layer` separates the timeline from what sits on top of it.
+        # An overlay-layer cut is a timed composite over the assembled primary,
+        # not a segment concatenated into it, so it must never reach the
+        # trim/concat loop below — nor that loop's still-image guard, which
+        # only makes sense for a still occupying its own slot in the timeline.
+        # `layer` defaults to "primary" in the schema, so edits that omit it
+        # behave exactly as before.
+        overlay_cuts = [c for c in all_cuts if c.get("layer") == "overlay"]
+        cuts = [c for c in all_cuts if c.get("layer") != "overlay"]
+        if not cuts:
+            return ToolResult(
+                success=False,
+                error=(
+                    "edit_decisions.cuts contains only overlay-layer cuts. "
+                    "At least one primary cut is required to carry the timeline."
+                ),
+            )
 
         # Resolve subtitle style using the layered priority resolver
         # (explicit > edit_decisions > playbook > defaults)
@@ -700,11 +718,24 @@ class VideoCompose(BaseTool):
             cmd.append(str(output_path))
             self.run_command(cmd)
 
+            if overlay_cuts:
+                overlay_result = self._apply_overlay_cuts(
+                    output_path=output_path,
+                    overlay_cuts=overlay_cuts,
+                    target_w=target_w,
+                    target_h=target_h,
+                    codec=codec,
+                    crf=crf,
+                )
+                if not overlay_result.success:
+                    return overlay_result
+
             return ToolResult(
                 success=True,
                 data={
                     "operation": "compose",
                     "cut_count": len(cuts),
+                    "overlay_cut_count": len(overlay_cuts),
                     "has_subtitles": subtitle_path is not None,
                     "has_mixed_audio": audio_path is not None,
                     "profile": profile_name,
@@ -725,6 +756,133 @@ class VideoCompose(BaseTool):
                     temp_dir.rmdir()
                 except OSError:
                     pass
+
+    # Named anchors for an overlay-layer cut, expressed as FFmpeg overlay-filter
+    # coordinates. W/H are the main frame, w/h the (already scaled) overlay, so
+    # the aspect ratio never has to be known ahead of time.
+    _OVERLAY_ANCHORS = {
+        "center": ("(W-w)/2", "(H-h)/2"),
+        "top-left": ("0", "0"),
+        "top-center": ("(W-w)/2", "0"),
+        "top-right": ("W-w", "0"),
+        "left-center": ("0", "(H-h)/2"),
+        "right-center": ("W-w", "(H-h)/2"),
+        "bottom-left": ("0", "H-h"),
+        "bottom-center": ("(W-w)/2", "H-h"),
+        "bottom-right": ("W-w", "H-h"),
+    }
+
+    def _apply_overlay_cuts(
+        self,
+        *,
+        output_path: Path,
+        overlay_cuts: list[dict],
+        target_w: int,
+        target_h: int,
+        codec: str,
+        crf: int,
+    ) -> ToolResult:
+        """Composite overlay-layer cuts on top of an assembled primary timeline.
+
+        Each overlay cut becomes one timed `overlay` filter, enabled between its
+        `in_seconds` and `out_seconds`. Geometry comes from `transform`:
+
+        * `crop`  -- applied first, in the source image's own pixels
+        * `scale` -- fraction of the target frame the overlay may occupy
+          (default 1.0 = full frame). Aspect ratio is preserved via
+          `force_original_aspect_ratio=decrease`, so an overlay is never
+          stretched to fit.
+        * `position` -- a named anchor from `_OVERLAY_ANCHORS` (default
+          "center").
+
+        Audio from the primary is passed through untouched.
+        """
+        composited = output_path.with_name(f"{output_path.stem}_ov{output_path.suffix}")
+
+        input_args: list[str] = ["-i", str(output_path)]
+        filter_parts: list[str] = []
+        prev_label = "0:v"
+
+        for i, cut in enumerate(overlay_cuts):
+            source = Path(cut.get("source", ""))
+            if not source.exists():
+                return ToolResult(
+                    success=False, error=f"Overlay cut source not found: {source}"
+                )
+            if not self._is_image(source):
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"Overlay cut '{cut.get('id', i)}' points at a non-image "
+                        f"source ({source.name}). The FFmpeg path composites still "
+                        "overlays only; use Remotion for moving picture-in-picture."
+                    ),
+                )
+
+            input_args.extend(["-i", str(source)])
+            transform = cut.get("transform") or {}
+
+            chain: list[str] = []
+            crop = transform.get("crop") or {}
+            if all(k in crop for k in ("width", "height")):
+                chain.append(
+                    "crop={w}:{h}:{x}:{y}".format(
+                        w=int(crop["width"]),
+                        h=int(crop["height"]),
+                        x=int(crop.get("x", 0)),
+                        y=int(crop.get("y", 0)),
+                    )
+                )
+
+            try:
+                scale = float(transform.get("scale", 1.0) or 1.0)
+            except (TypeError, ValueError):
+                scale = 1.0
+            scale = max(0.01, min(scale, 1.0))
+            box_w = max(1, int(round(target_w * scale)))
+            box_h = max(1, int(round(target_h * scale)))
+            chain.append(
+                f"scale={box_w}:{box_h}:force_original_aspect_ratio=decrease"
+            )
+
+            filter_parts.append(f"[{i + 1}:v]{','.join(chain)}[ov{i}]")
+
+            anchor = str(transform.get("position") or "center").strip().lower()
+            anchor = anchor.replace("_", "-").replace(" ", "-")
+            x_expr, y_expr = self._OVERLAY_ANCHORS.get(
+                anchor, self._OVERLAY_ANCHORS["center"]
+            )
+
+            start = cut.get("in_seconds", 0)
+            end = cut.get("out_seconds")
+            enable = (
+                f"between(t,{start},{end})" if end is not None else f"gte(t,{start})"
+            )
+            out_label = f"ovout{i}"
+            filter_parts.append(
+                f"[{prev_label}][ov{i}]overlay={x_expr}:{y_expr}:"
+                f"enable='{enable}'[{out_label}]"
+            )
+            prev_label = out_label
+
+        cmd = ["ffmpeg", "-y", *input_args]
+        cmd.extend(["-filter_complex", ";".join(filter_parts)])
+        cmd.extend(["-map", f"[{prev_label}]", "-map", "0:a?"])
+        cmd.extend(["-c:v", codec, "-crf", str(crf), "-c:a", "copy"])
+        cmd.append(str(composited))
+
+        self.run_command(cmd)
+
+        if not composited.exists():
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Overlay compositing produced no output for "
+                    f"{len(overlay_cuts)} overlay cut(s)."
+                ),
+            )
+        composited.replace(output_path)
+        return ToolResult(success=True, data={"overlay_cut_count": len(overlay_cuts)})
 
     _REMOTION_SCENE_TYPES = {
         "text_card", "stat_card", "callout", "comparison", "progress", "chart",
