@@ -120,6 +120,11 @@ class GeminiOmniVideo(BaseTool):
                 "enum": ["16:9", "9:16"],
                 "default": "16:9",
             },
+            "model": {
+                "type": "string",
+                "description": "Gemini Omni model id, e.g. gemini-omni-1.1-flash (GA). Defaults to gemini-omni-flash-preview.",
+                "default": _DEFAULT_MODEL,
+            },
             "duration": {
                 "type": "string",
                 "description": (
@@ -354,6 +359,7 @@ class GeminiOmniVideo(BaseTool):
         prompt = str(inputs["prompt"]).strip()
         aspect_ratio = inputs.get("aspect_ratio", "16:9")
         previous_interaction_id = inputs.get("previous_interaction_id")
+        model = inputs.get("model") or _DEFAULT_MODEL
 
         if operation == "edit_video" and not previous_interaction_id and not inputs.get("input_video_path"):
             return ToolResult(
@@ -379,7 +385,7 @@ class GeminiOmniVideo(BaseTool):
             return ToolResult(success=False, error=f"Gemini Omni input preparation failed: {e}")
 
         payload: dict[str, Any] = {
-            "model": _DEFAULT_MODEL,
+            "model": model,
             # Plain string for text-only turns (the documented minimal form),
             # typed parts when images or an uploaded video ride along.
             "input": prompt if not parts else parts + [{"type": "text", "text": prompt}],
@@ -435,7 +441,7 @@ class GeminiOmniVideo(BaseTool):
             success=True,
             data={
                 "provider": self.provider,
-                "model": _DEFAULT_MODEL,
+                "model": model,
                 "prompt": prompt,
                 "operation": operation,
                 "output": str(output_path),
@@ -448,5 +454,5 @@ class GeminiOmniVideo(BaseTool):
             artifacts=[str(output_path)],
             cost_usd=self.estimate_cost(inputs),
             duration_seconds=round(time.time() - start, 2),
-            model=_DEFAULT_MODEL,
+            model=model,
         )
